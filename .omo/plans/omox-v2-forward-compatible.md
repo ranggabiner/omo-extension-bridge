@@ -268,7 +268,7 @@ Your next move: High-accuracy plan review is active. Full execution detail follo
   - Happy path: `node test/smoke.mjs` reports `All tests passed` with 0 failures.
   Commit: Y | test: comprehensive v2 forward-compatibility and regression test matrix
 
-- [ ] 8. Execute Live beta.89 Verification, Apply, Rollback Validation, Version Bump to 2.0.0, Git Commit & Tag
+- [x] 8. Execute Live beta.89 Verification, Apply, Rollback Validation, Version Bump to 2.0.0, Git Commit & Tag
   Recommended task executor category: deep-high
   What to do:
   - Execute live `node ./src/cli.mjs verify` against installed `beta.89`: must report `NEEDS_PATCH` without version registration.
@@ -299,10 +299,10 @@ Your next move: High-accuracy plan review is active. Full execution detail follo
 
 ## Final verification wave
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
-- [ ] F1. Plan compliance audit
-- [ ] F2. Code quality review
-- [ ] F3. Real manual QA
-- [ ] F4. Ideal-state fidelity
+- [x] F1. Plan compliance audit
+- [x] F2. Code quality review
+- [x] F3. Real manual QA
+- [x] F4. Ideal-state fidelity
 
 ## Commit strategy
 - Atomic Conventional Commits per todo:
