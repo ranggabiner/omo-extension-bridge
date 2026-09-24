@@ -1,10 +1,25 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { getOmoxVersion } from './lib/version.mjs';
 import { EXIT_CODES } from './lib/status.mjs';
 
-export const OFFICIAL_SOURCE = 'github:ranggabiner/omo-extension-bridge';
+export const OFFICIAL_SOURCE = 'github:ranggabiner/omo-extension-bridge#main';
+
+/**
+ * Normalizes source specifier to ensure canonical branch is targeted.
+ *
+ * @param {string} [source]
+ * @returns {string}
+ */
+export function normalizeSource(source) {
+  if (!source) return OFFICIAL_SOURCE;
+  if (source === 'github:ranggabiner/omo-extension-bridge') {
+    return OFFICIAL_SOURCE;
+  }
+  return source;
+}
 
 /**
  * Robustly find an executable in PATH across Linux, macOS, and Windows.
@@ -48,6 +63,7 @@ export function findExecutableInPath(command, customPath) {
  */
 export function resolveUpdatePackageManager(options = {}) {
   const customPath = options.customPath ?? process.env.PATH;
+  const source = normalizeSource(options.source);
 
   if (options.overridePm === 'bun') {
     const bunPath = findExecutableInPath('bun', customPath);
@@ -55,7 +71,7 @@ export function resolveUpdatePackageManager(options = {}) {
     return {
       pm: 'bun',
       executable: bunPath,
-      args: ['add', '-g', options.source || OFFICIAL_SOURCE],
+      args: ['add', '-g', '--force', source],
     };
   }
 
@@ -65,7 +81,7 @@ export function resolveUpdatePackageManager(options = {}) {
     return {
       pm: 'npm',
       executable: npmPath,
-      args: ['install', '-g', options.source || OFFICIAL_SOURCE],
+      args: ['install', '-g', source],
     };
   }
 
@@ -75,7 +91,7 @@ export function resolveUpdatePackageManager(options = {}) {
     return {
       pm: 'bun',
       executable: bunPath,
-      args: ['add', '-g', options.source || OFFICIAL_SOURCE],
+      args: ['add', '-g', '--force', source],
     };
   }
 
@@ -85,7 +101,7 @@ export function resolveUpdatePackageManager(options = {}) {
     return {
       pm: 'npm',
       executable: npmPath,
-      args: ['install', '-g', options.source || OFFICIAL_SOURCE],
+      args: ['install', '-g', source],
     };
   }
 
@@ -113,7 +129,7 @@ export function resolveUpdatePackageManager(options = {}) {
  * }>}
  */
 export async function runUpdate(options = {}) {
-  const source = options.source || OFFICIAL_SOURCE;
+  const source = normalizeSource(options.source);
   const previousVersion = getOmoxVersion();
 
   let pmConfig;
@@ -144,6 +160,7 @@ export async function runUpdate(options = {}) {
           child = spawn(exec, args, {
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
+            shell: false,
             env: runOpts?.env || process.env,
           });
         } catch (err) {
@@ -199,16 +216,24 @@ export async function runUpdate(options = {}) {
 
   // After successful install, resolve new omox and query its version
   let currentVersion = previousVersion;
-  const newOmoxPath = findExecutableInPath('omox', options.customPath);
+  const newOmoxPath =
+    findExecutableInPath('omox', options.customPath) ||
+    findExecutableInPath('omox', path.join(os.homedir(), '.bun', 'bin')) ||
+    findExecutableInPath('omox');
 
   if (newOmoxPath) {
     const versionCheck = await runner(newOmoxPath, ['--version'], {
       env: options.env || process.env,
     });
-    if (versionCheck.code === 0 && versionCheck.stdout.trim()) {
+    if (versionCheck.code === 0 && versionCheck.stdout && versionCheck.stdout.trim()) {
       currentVersion = versionCheck.stdout.trim().split(/\r?\n/)[0].trim();
     }
   }
+
+  const versionChanged = previousVersion !== currentVersion;
+  const currentVersionLine = versionChanged
+    ? `Current version: ${currentVersion} (updated from ${previousVersion})`
+    : `Current version: ${currentVersion} (unchanged)`;
 
   const lines = [
     'OmO Extension Bridge',
@@ -220,9 +245,7 @@ export async function runUpdate(options = {}) {
     'Update complete.',
     '',
     `Previous version: ${previousVersion}`,
-    previousVersion === currentVersion
-      ? `Current version: ${currentVersion} (updated from latest GitHub source)`
-      : `Current version: ${currentVersion}`,
+    currentVersionLine,
     '',
     'Next:',
     '  omox verify',
@@ -232,6 +255,7 @@ export async function runUpdate(options = {}) {
     success: true,
     previousVersion,
     currentVersion,
+    versionChanged,
     packageManager: pmConfig.pm,
     report: lines.join('\n'),
     exitCode: EXIT_CODES.SUCCESS,

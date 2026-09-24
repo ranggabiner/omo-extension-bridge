@@ -976,7 +976,7 @@ test('16. Bun available => Bun selected', () => {
     const res = resolveUpdatePackageManager({ customPath: tmpDir });
     assert.equal(res.pm, 'bun');
     assert.equal(res.executable, fakeBun);
-    assert.deepEqual(res.args, ['add', '-g', OFFICIAL_SOURCE]);
+    assert.deepEqual(res.args, ['add', '-g', '--force', OFFICIAL_SOURCE]);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -1066,8 +1066,70 @@ await testAsync('20. Successful update => newly resolved omox --version is execu
     assert.equal(res.success, true);
     assert.equal(res.exitCode, EXIT_CODES.SUCCESS);
     assert.equal(res.currentVersion, '2.0.0');
+    assert.equal(res.versionChanged, false);
+    assert.ok(res.report.includes('Current version: 2.0.0 (unchanged)'));
+    assert.equal(res.report.includes('updated from latest GitHub source'), false);
     assert.ok(calls.some((c) => c.exec.endsWith('omox') && c.args.includes('--version')));
     assert.ok(res.report.includes('Next:\n  omox verify'));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// 20b. Update with version change => reports updated from previousVersion
+await testAsync('20b. Update with version change => reports updated from previousVersion', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omox-test-update-changed-'));
+  try {
+    const fakeBun = path.join(tmpDir, 'bun');
+    const fakeOmox = path.join(tmpDir, 'omox');
+    fs.writeFileSync(fakeBun, '#!/bin/sh');
+    fs.writeFileSync(fakeOmox, '#!/bin/sh');
+
+    const calls = [];
+    const mockRunner = async (exec, args) => {
+      calls.push({ exec, args });
+      if (exec.endsWith('bun')) {
+        return { code: 0, stdout: 'installed successfully', stderr: '' };
+      }
+      if (exec.endsWith('omox')) {
+        return { code: 0, stdout: '2.1.0\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    };
+
+    const res = await runUpdate({
+      customPath: tmpDir,
+      runner: mockRunner,
+    });
+
+    assert.equal(res.success, true);
+    assert.equal(res.exitCode, EXIT_CODES.SUCCESS);
+    assert.equal(res.previousVersion, '2.0.0');
+    assert.equal(res.currentVersion, '2.1.0');
+    assert.equal(res.versionChanged, true);
+    assert.ok(res.report.includes('Current version: 2.1.0 (updated from 2.0.0)'));
+    assert.ok(res.report.includes('Previous version: 2.0.0'));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// 20c. Bun update forces canonical #main branch and shell=false argv
+test('20c. Bun update forces canonical #main branch and shell=false argv', () => {
+  assert.ok(OFFICIAL_SOURCE.includes('#main'), 'OFFICIAL_SOURCE must target canonical #main branch');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omox-test-bun-force-'));
+  try {
+    const fakeBun = path.join(tmpDir, 'bun');
+    fs.writeFileSync(fakeBun, '#!/bin/sh');
+
+    const res1 = resolveUpdatePackageManager({ customPath: tmpDir });
+    assert.deepEqual(res1.args, ['add', '-g', '--force', 'github:ranggabiner/omo-extension-bridge#main']);
+
+    const res2 = resolveUpdatePackageManager({
+      customPath: tmpDir,
+      source: 'github:ranggabiner/omo-extension-bridge',
+    });
+    assert.deepEqual(res2.args, ['add', '-g', '--force', 'github:ranggabiner/omo-extension-bridge#main']);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

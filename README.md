@@ -264,3 +264,8 @@ The core invariant enforced by `omox`:
 $$\text{Package provider installed in parent} \implies \text{Same provider available in every child requiring model access}$$
 
 Whenever OmO launches a child process or helper that consumes models or inspects the model catalog, `omox` guarantees the child receives the resolved absolute entrypoints of package-managed provider extensions while preserving complete child isolation.
+
+---
+
+Made with ❤️ by [ranggabiner](https://ranggabiner.com)
+

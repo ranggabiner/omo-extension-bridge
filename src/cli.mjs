@@ -24,7 +24,7 @@ Note:
   omox update does NOT update OmO.
 
 Options:
-  --source <source>     Custom package source for update (default: github:ranggabiner/omo-extension-bridge)
+  --source <source>     Custom package source for update (default: github:ranggabiner/omo-extension-bridge#main)
   --pm <bun|npm>        Force specific package manager for update
   --skip-runtime-test   Skip out-of-process worker smoke test
   --timeout <ms>        Timeout for runtime smoke test in milliseconds (default: 30000)
