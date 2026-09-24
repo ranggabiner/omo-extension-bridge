@@ -1,21 +1,23 @@
 import { detectOmo } from './lib/detect-omo.mjs';
 import { detectExtensions } from './lib/detect-extensions.mjs';
 import { inspectTarget, applyPatch } from './lib/patch.mjs';
-import { createBackup, restoreBackup } from './lib/backup.mjs';
+import { restoreBackup } from './lib/backup.mjs';
 import { runWorkerSmokeTest } from './lib/runtime-test.mjs';
 import { STATUS } from './lib/status.mjs';
-import { getOmoxVersion } from './lib/version.mjs';
 
 /**
  * Executes the apply command.
- * Transactional and fail-closed: creates an external backup, applies patches,
- * verifies structural & runtime health, and automatically rolls back if anything fails.
+ * Transactional and forward-compatible: calls applyPatch to selectively repair
+ * broken capabilities, formats CLI report showing modified files, capabilities repaired,
+ * backup directory, and post-apply status.
  *
  * @param {object} [options={}]
  * @param {string} [options.omoPackageRoot]
  * @param {string} [options.omoExecutable]
  * @param {string} [options.agentDir]
  * @param {string} [options.backupRootDir]
+ * @param {string} [options.statePath]
+ * @param {string} [options.stateFile]
  * @param {boolean} [options.skipRuntimeTest=false]
  * @param {number} [options.timeoutMs=30000]
  * @returns {Promise<{
@@ -24,6 +26,7 @@ import { getOmoxVersion } from './lib/version.mjs';
  *   backupDir: string|null,
  *   modifiedFiles: string[],
  *   permissionsFixed: boolean,
+ *   repairsApplied?: string[],
  *   report: string
  * }>}
  */
@@ -46,7 +49,7 @@ export async function runApply(options = {}) {
       report: [
         'OmO Extension Bridge - Apply',
         '',
-        `OmO Version: ${omo.omoVersion}`,
+        `OmO Version: ${omo.omoVersion || 'unknown'}`,
         'Status: NATIVE_OK',
         'Installed OmO already implements the required behavior natively.',
         'Zero modifications made.',
@@ -64,7 +67,7 @@ export async function runApply(options = {}) {
       report: [
         'OmO Extension Bridge - Apply',
         '',
-        `OmO Version: ${omo.omoVersion}`,
+        `OmO Version: ${omo.omoVersion || 'unknown'}`,
         'Status: PATCHED_OK',
         'Installation already contains the verified compatibility patch.',
         'Zero modifications made.',
@@ -82,7 +85,7 @@ export async function runApply(options = {}) {
       report: [
         'OmO Extension Bridge - Apply',
         '',
-        `OmO Version: ${omo.omoVersion}`,
+        `OmO Version: ${omo.omoVersion || 'unknown'}`,
         'Status: INCOMPATIBLE',
         'Installed OmO structure/signatures are unknown or unsafe to patch automatically.',
         'Zero modifications made.',
@@ -96,37 +99,33 @@ export async function runApply(options = {}) {
     );
   }
 
-  // Identify files to backup
-  const filesToBackup = [
-    ...Object.keys(preflight.targetDef?.files || {}),
-    preflight.targetDef?.daemonSpecRelativePath || 'plugin/daemon-launch-spec.json',
-  ];
-
-  // Create isolated backup before modifying anything
-  const backup = createBackup({
-    omoPackageRoot: omo.omoPackageRoot,
-    omoVersion: omo.omoVersion,
-    filesToBackup,
-    omoxVersion: getOmoxVersion(),
+  const patchResult = applyPatch(omo.omoPackageRoot, omo.omoVersion, {
     backupRootDir: options.backupRootDir,
+    statePath: options.statePath || options.stateFile,
   });
 
-  // Apply transaction
-  try {
-    const patchResult = applyPatch(omo.omoPackageRoot, omo.omoVersion);
+  if (!patchResult.modified) {
+    return {
+      status: patchResult.status,
+      modified: false,
+      backupDir: null,
+      modifiedFiles: [],
+      permissionsFixed: false,
+      report: [
+        'OmO Extension Bridge - Apply',
+        '',
+        `OmO Version: ${omo.omoVersion || 'unknown'}`,
+        `Status: ${patchResult.status}`,
+        patchResult.message || 'Already healthy, 0 writes performed.',
+        'Zero modifications made.',
+      ].join('\n'),
+    };
+  }
 
-    // Verify post-patch structural health
-    const postInspect = inspectTarget(omo.omoPackageRoot, omo.omoVersion);
-    if (postInspect.status !== STATUS.PATCHED_OK) {
-      throw new Error(
-        `Post-patch structural verification failed (ended in ${postInspect.status})`
-      );
-    }
-
-    // Optional runtime smoke test
-    let runtimeOk = true;
-    let runtimeMsg = '';
-    if (!options.skipRuntimeTest) {
+  // Optional runtime smoke test
+  let runtimeMsg = '';
+  if (!options.skipRuntimeTest) {
+    try {
       const extensions = detectExtensions({
         agentDir: omo.agentDir,
         omoPackageRoot: omo.omoPackageRoot,
@@ -148,44 +147,52 @@ export async function runApply(options = {}) {
         }
         runtimeMsg = `\nWorker smoke test: PASS (${runtimeTest.durationMs}ms)`;
       }
-    }
-
-    const reportLines = [
-      'OmO Extension Bridge - Apply',
-      '',
-      `OmO Version: ${omo.omoVersion}`,
-      `Backup created: ${backup.backupDir}`,
-      `Patched files:`,
-      ...patchResult.modifiedFiles.map((f) => `  - ${f}`),
-    ];
-    if (patchResult.permissionsFixed) {
-      reportLines.push('Permissions fixed: plugin/daemon-launch-spec.json -> 0644');
-    }
-    if (runtimeMsg) {
-      reportLines.push(runtimeMsg);
-    }
-    reportLines.push('');
-    reportLines.push('Result: PATCHED_OK');
-
-    return {
-      status: STATUS.PATCHED_OK,
-      modified: true,
-      backupDir: backup.backupDir,
-      modifiedFiles: patchResult.modifiedFiles,
-      permissionsFixed: patchResult.permissionsFixed,
-      report: reportLines.join('\n'),
-    };
-  } catch (err) {
-    // FAIL-CLOSED: automatically restore backup immediately
-    try {
-      restoreBackup(backup.backupDir);
-    } catch (restoreErr) {
+    } catch (runtimeErr) {
+      if (patchResult.backupDir) {
+        try {
+          restoreBackup(patchResult.backupDir);
+        } catch (rollbackErr) {
+          throw new Error(
+            `Runtime smoke test failed (${runtimeErr.message}) and automated rollback failed: ${rollbackErr.message}`
+          );
+        }
+      }
       throw new Error(
-        `Apply failed (${err.message}) and automated rollback failed: ${restoreErr.message}`
+        `Apply failed and was rolled back to original state: ${runtimeErr.message}`
       );
     }
-    throw new Error(
-      `Apply failed and was rolled back to original state: ${err.message}`
-    );
   }
+
+  const reportLines = [
+    'OmO Extension Bridge - Apply',
+    '',
+    `OmO Version: ${omo.omoVersion || 'unknown'}`,
+    `Status: ${patchResult.status}`,
+    `Backup directory: ${patchResult.backupDir || 'none'}`,
+    `Capabilities repaired: ${(patchResult.repairsApplied || []).join(', ') || 'none'}`,
+    '',
+    'Modified files:',
+    ...(patchResult.modifiedFiles.length > 0
+      ? patchResult.modifiedFiles.map((f) => `  - ${f}`)
+      : ['  (none)']),
+  ];
+  if (patchResult.permissionsFixed) {
+    reportLines.push('');
+    reportLines.push('Permissions fixed: plugin/daemon-launch-spec.json -> 0644');
+  }
+  if (runtimeMsg) {
+    reportLines.push(runtimeMsg);
+  }
+  reportLines.push('');
+  reportLines.push('Result: PATCHED_OK');
+
+  return {
+    status: STATUS.PATCHED_OK,
+    modified: true,
+    backupDir: patchResult.backupDir,
+    modifiedFiles: patchResult.modifiedFiles,
+    permissionsFixed: patchResult.permissionsFixed,
+    repairsApplied: patchResult.repairsApplied,
+    report: reportLines.join('\n'),
+  };
 }

@@ -102,22 +102,14 @@ export async function runVerify(options = {}) {
   }
   lines.push('');
 
-  const taskFile = structural.files['plugin/extensions/omo-task.js'];
-  const omoFile = structural.files['plugin/extensions/omo.js'];
-
-  const taskOk = taskFile?.status === 'PATCHED' || taskFile?.status === 'NATIVE';
-  const taskStatus = taskOk ? 'PASS' : taskFile?.status === 'NEEDS_PATCH' ? 'NEEDS_PATCH' : 'UNKNOWN';
-
-  const omoOk = omoFile?.status === 'PATCHED' || omoFile?.status === 'NATIVE';
-  const omoStatus = omoOk ? 'PASS' : omoFile?.status === 'NEEDS_PATCH' ? 'NEEDS_PATCH' : 'UNKNOWN';
-
   lines.push('Child Provider Propagation');
-  lines.push(`  Task/RPC: ${taskStatus}`);
-  lines.push(`  Team/Workpool/Revival: ${taskStatus}`);
-  lines.push(`  Memory model preflight: ${omoStatus}`);
-  lines.push(`  Memory reflection: ${omoStatus}`);
-  lines.push(`  Memory dream: ${omoStatus}`);
-  lines.push(`  People ask: ${omoStatus}`);
+  lines.push(`  Task/RPC: ${structural.capabilities.taskRpc}`);
+  lines.push(`  DAG Task: ${structural.capabilities.taskDag}`);
+  lines.push(`  Memory model preflight: ${structural.capabilities.memoryPreflight}`);
+  lines.push(`  Memory reflection: ${structural.capabilities.memoryReflection}`);
+  lines.push(`  Memory dream: ${structural.capabilities.memoryDream}`);
+  lines.push(`  People ask: ${structural.capabilities.peopleAsk}`);
+  lines.push(`  Fork reflection: ${structural.capabilities.forkReflection}`);
   lines.push('');
 
   lines.push('Daemon');
@@ -127,6 +119,20 @@ export async function runVerify(options = {}) {
   lines.push(
     `  Security check: ${structural.launchSpec.isSafe ? 'PASS' : 'FAIL (group/world writable)'}`
   );
+  lines.push('');
+
+  lines.push('Repair Support');
+  lines.push(
+    '  Supported capabilities: memory (preflight, reflection, dream, peopleAsk), task (DAG task), daemon (permissions)'
+  );
+  lines.push(
+    `  OmO version registration status: ${structural.versionKnown ? `REGISTERED (${omo.omoVersion})` : 'UNREGISTERED (forward-compatible AST inspection)'}`
+  );
+  if (structural.repairPlan?.repairsNeeded?.length > 0) {
+    lines.push(
+      `  Repairs needed: ${structural.repairPlan.repairsNeeded.join(', ')}`
+    );
+  }
   lines.push('');
 
   if (extensions.hasAntigravity) {
@@ -143,7 +149,7 @@ export async function runVerify(options = {}) {
         `  Task worker: ${runtimeTest.rpcExecutionOk ? `PASS (${runtimeTest.durationMs}ms)` : `FAIL (${runtimeTest.error || 'error'})`}`
       );
       lines.push(
-        `  Reflection child: ${omoOk ? 'PASS' : 'NEEDS_PATCH'}`
+        `  Reflection child: ${structural.capabilities.memoryReflection === 'PASS' ? 'PASS' : 'NEEDS_PATCH'}`
       );
     } else if (options.skipRuntimeTest) {
       lines.push('  Task worker: SKIPPED (--skip-runtime-test)');

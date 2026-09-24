@@ -15,9 +15,9 @@ export function getOmoxVersion() {
   if (cachedVersion) return cachedVersion;
   try {
     const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-    cachedVersion = pkg.version || '1.1.0';
+    cachedVersion = pkg.version || '2.0.0';
   } catch {
-    cachedVersion = '1.1.0';
+    cachedVersion = '2.0.0';
   }
   return cachedVersion;
 }

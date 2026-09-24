@@ -24,6 +24,8 @@ test-results/
 
 # Omox and OmO runtime artifacts
 .omox/
+.omo/*
+!.omo/plans/
 backups/
 *.bak
 *.backup

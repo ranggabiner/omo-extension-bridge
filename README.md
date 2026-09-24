@@ -1,6 +1,6 @@
 # omo-extension-bridge (`omox`)
 
-Safe, provider-agnostic CLI utility that bridges package-managed provider extensions into isolated OmO child processes, with zero configuration and exact transactional rollback.
+Safe, provider-agnostic CLI utility that bridges package-managed provider extensions into isolated OmO child processes, built on a forward-compatible, capability-driven architecture with zero configuration and exact transactional rollback.
 
 ---
 
@@ -8,7 +8,17 @@ Safe, provider-agnostic CLI utility that bridges package-managed provider extens
 
 `omox` bridges package-managed provider extensions (such as `pi-antigravity`, `pi-commandcode-provider`, and custom provider packages) into isolated OmO child processes that otherwise launch with automatic extension discovery disabled (`--no-extensions`).
 
-It preserves child isolation:
+### The v2.0.0 Philosophy: Capability-Driven & Forward-Compatible
+Prior versions of `omox` relied on hard-coded version tables and whole-file SHA-256 signatures, causing routine upstream OmO updates (such as `beta.88 -> beta.89` or bundle re-minifications) to break compatibility and demand immediate maintenance releases.
+
+**`omox` v2.0.0 eliminates version-locked maintenance releases** by transitioning to a **capability-driven, forward-compatible architecture**:
+- **Semantic AST Matching**: Discovers injection targets by structural invariants (CLI flag patterns, enclosing execution scopes, and consumer data-flow gates) using AST analysis rather than fragile minified identifier names or file hashes.
+- **Selective Surgical Repairs**: Evaluates propagation health per capability (memory preflight, reflection, dream, peopleAsk, DAG tasks, and daemon permissions). Only failing capabilities are repaired; native or already-healthy surfaces (such as fork reflection) are left 100% pristine.
+- **Day-Zero Native Recognition**: When upstream OmO natively supports extension propagation on a surface, `omox` recognizes the capability contract and reports `NATIVE_OK` without requiring code changes or version registration.
+- **Authoritative Resolution**: Resolves package extensions using Senpi's canonical `DefaultPackageManager` with read-only guards, eliminating side effects and preserving exact resolution semantics.
+
+### Preserved Child Isolation
+`omox` strictly preserves child isolation invariants:
 - Retains `--no-extensions`
 - Retains `--no-skills`, `--no-prompt-templates`, `--no-context-files`
 - Retains process boundaries, session dirs, worktrees, and tool permissions
@@ -20,14 +30,13 @@ It preserves child isolation:
     --model provider/model
   ```
 
-`omox` verifies and patches known child-provider propagation paths for supported OmO builds, including:
-- **Task & RPC Workers**: Ordinary process workers, category workers, subagents, DAG runners
+`omox` verifies and repairs child-provider propagation across all key OmO execution surfaces:
+- **Task & RPC Workers**: Ordinary process workers, category workers, subagents, and DAG runners (recovering the first extension previously stripped by DAG slice logic)
 - **Team & Workpools**: Team member processes, workpool workers, cold revival / respawn
 - **Memory Model Preflight**: Preflight catalog probe (`--list-models`) ensuring preflight provider visibility matches child visibility
-- **Memory Reflection & Dream**: Normal supervisor reflection spawns and fork-mode reflection spawns
+- **Memory Reflection & Dream**: Supervisor reflection spawns and dream subprocesses
 - **People Ask**: Interactive and automated memory people-ask subprocesses
-
-> `omox` does not promise support for arbitrary unknown future OmO internals. It targets verified versions and fails closed.
+- **Daemon Permissions**: Hardens `daemon-launch-spec.json` to secure mode `0644` preventing launch failures on group/world-writable systems
 
 ---
 
@@ -174,11 +183,11 @@ omox update [options]
 
 | Status | Meaning | Action Required | Exit Code |
 |---|---|---|---|
-| `NATIVE_OK` | OmO natively implements provider extension propagation | Do nothing | `0` |
-| `PATCHED_OK` | Compatibility patch is applied and fully verified | Do nothing | `0` |
-| `NEEDS_PATCH` | Known OmO build detected needing compatibility patch | Run `omox apply` | `10` |
-| `INCOMPATIBLE` | Unknown or modified OmO structure detected | Do not patch automatically | `20` |
-| `VERIFY_FAILED` | Structural integrity or worker smoke test failed | Inspect error details | `30` |
+| `NATIVE_OK` | OmO natively implements provider extension propagation across all surfaces | Do nothing | `0` |
+| `PATCHED_OK` | Compatibility repair is applied and verified healthy across all capabilities | Do nothing | `0` |
+| `NEEDS_PATCH` | OmO installation lacks extension propagation on one or more capabilities | Run `omox apply` | `10` |
+| `INCOMPATIBLE` | Ambiguous AST structures or unrecognized code layout detected | Do not patch automatically | `20` |
+| `VERIFY_FAILED` | Verification failed (broken permissions, syntax error, or worker probe failure) | Inspect error details | `30` |
 
 ---
 
@@ -225,20 +234,26 @@ Every `omox apply` is strictly transactional:
   ```
 - **Reproducible Versioned Install (Pinned Tag)**:
   ```bash
-  bun add -g github:ranggabiner/omo-extension-bridge#v1.1.0
+  bun add -g github:ranggabiner/omo-extension-bridge#v2.0.0
   ```
 
 Installing from `main` gets the latest commit; installing by tag gives a reproducible, pinned release.
 
 ---
 
-## 11. Safety Model & Supported Builds
+## 11. Safety Model & Architecture
 
-- **Version & Signature Aware**: Computes SHA-256 digests of all target files before modification.
-- **Fail-Closed**: If an anchor does not match with exact multiplicity (1 match), patching halts with zero writes.
-- **Incremental State Aware**: Recognizes partially patched or previously patched states as valid incremental pre-states without requiring a pristine re-install.
-- **Daemon Permission Guard**: Audits `daemon-launch-spec.json` and ensures `0644` permissions so the local daemon refuses execution if world/group writable.
-- **Supported Builds**: Currently verified on OmO Native `5.0.0-0.beta.88` running on `@code-yeongyu/senpi` `2026.9.23-5`.
+- **Semantic AST Matching**: Rather than fragile whole-file hashes or minified token names, `omox` parses target code with `@babel/parser` and searches for semantic invariant CLI patterns (`--no-extensions`, `--list-models`, `--tools bash,edit`, DAG slice expressions).
+- **Three-Gate Validation**: Every candidate target must pass:
+  1. *Multiplicity Gate*: Exactly 1 unique target per capability. If duplicate patterns exist, `omox` rejects with `AMBIGUOUS_TARGET`.
+  2. *Enclosing Scope Gate*: Must reside within the expected function body (e.g. `probeModels`, `spawnReflectionChild`).
+  3. *Consumer Data-Flow Gate*: Candidate arguments must be actively consumed by a child spawn invocation or return expression.
+- **Selective Surgical Repairs**: Only capabilities that fail verification are modified. Surfaces that OmO natively implements correctly (such as fork reflection or native task execution) are left completely untouched.
+- **Fail-Closed Authoritative Resolution**: Extension discovery leverages Senpi's canonical `DefaultPackageManager` with a read-only `onMissing` handler and strict narrow fallback, ensuring zero unexpected package installations or secret leaks.
+- **Post-Mutation AST Parse**: Patched buffers are re-parsed by Babel AST before any disk writes occur, guaranteeing syntax integrity.
+- **Atomic Disk Writes**: Updates are written to temporary files and renamed atomically, preserving existing file permissions.
+- **Rollback Stale-State Guard**: Prior to restoring pre-apply bytes, `omox rollback` verifies that current disk files match the recorded `postSha256` and `postMode`. If an upstream OmO update or manual edit modified the file after patching, rollback safely aborts to avoid restoring stale bytes over newer software.
+- **Forward-Compatible Compatibility**: Verified on OmO Native builds `5.0.0-0.beta.88`, `5.0.0-0.beta.89`, and forward-compatible native releases without requiring version-locked maintenance releases.
 
 ---
 
