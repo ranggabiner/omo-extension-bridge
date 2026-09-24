@@ -1,0 +1,152 @@
+import { detectOmo } from './lib/detect-omo.mjs';
+import { detectExtensions } from './lib/detect-extensions.mjs';
+import { inspectTarget } from './lib/patch.mjs';
+import { runWorkerSmokeTest } from './lib/runtime-test.mjs';
+import { STATUS } from './lib/status.mjs';
+
+/**
+ * Executes the verify command (strictly read-only).
+ *
+ * @param {object} [options={}]
+ * @param {string} [options.omoPackageRoot]
+ * @param {string} [options.omoExecutable]
+ * @param {string} [options.agentDir]
+ * @param {boolean} [options.skipRuntimeTest=false]
+ * @param {number} [options.timeoutMs=15000]
+ * @returns {Promise<{
+ *   status: string,
+ *   omo: object,
+ *   extensions: object,
+ *   structural: object,
+ *   runtimeTest: object|null,
+ *   report: string
+ * }>}
+ */
+export async function runVerify(options = {}) {
+  const omo = detectOmo({
+    omoPackageRoot: options.omoPackageRoot,
+    omoExecutable: options.omoExecutable,
+    agentDir: options.agentDir,
+  });
+
+  const extensions = detectExtensions({
+    agentDir: omo.agentDir,
+    omoPackageRoot: omo.omoPackageRoot,
+  });
+
+  const structural = inspectTarget(omo.omoPackageRoot, omo.omoVersion);
+
+  let overallStatus = structural.status;
+  let runtimeTest = null;
+
+  // Run runtime smoke test if Antigravity is installed and runtime test not skipped
+  if (
+    !options.skipRuntimeTest &&
+    extensions.hasAntigravity &&
+    extensions.antigravityEntry &&
+    (overallStatus === STATUS.PATCHED_OK || overallStatus === STATUS.NATIVE_OK)
+  ) {
+    const targetModel = extensions.antigravityModel || 'antigravity/gemini-3.8-flash';
+    try {
+      runtimeTest = await runWorkerSmokeTest({
+        extensionPath: extensions.antigravityEntry,
+        model: targetModel,
+        agentDir: omo.agentDir,
+        timeoutMs: options.timeoutMs || 15000,
+      });
+
+      if (!runtimeTest.success) {
+        overallStatus = STATUS.VERIFY_FAILED;
+      }
+    } catch (err) {
+      runtimeTest = {
+        success: false,
+        model: targetModel,
+        extensionPath: extensions.antigravityEntry,
+        catalogProbeOk: false,
+        rpcExecutionOk: false,
+        response: null,
+        durationMs: 0,
+        error: err.message,
+      };
+      overallStatus = STATUS.VERIFY_FAILED;
+    }
+  }
+
+  // Format terminal report
+  const lines = [];
+  lines.push('OmO Extension Bridge');
+  lines.push('');
+  lines.push('OmO');
+  lines.push(`  Version: ${omo.omoVersion}`);
+  if (omo.senpiVersion) {
+    lines.push(`  Senpi Version: ${omo.senpiVersion}`);
+  }
+  lines.push(`  Root: ${omo.omoPackageRoot}`);
+  lines.push(`  Agent Dir: ${omo.agentDir}`);
+  lines.push('');
+
+  lines.push('Extensions');
+  const pkgCount = extensions.packages.length;
+  lines.push(
+    `  Package-managed discovery: ${pkgCount > 0 ? `FOUND (${pkgCount} packages)` : 'NONE'}`
+  );
+  if (pkgCount > 0) {
+    for (const p of extensions.packages) {
+      lines.push(`    - ${p.name}@${p.version}`);
+    }
+  }
+
+  const taskFile = structural.files['plugin/extensions/omo-task.js'];
+  const childPropOk =
+    taskFile?.status === 'PATCHED' || taskFile?.status === 'NATIVE';
+  lines.push(
+    `  Child propagation: ${childPropOk ? 'PASS' : taskFile?.status === 'NEEDS_PATCH' ? 'NEEDS_PATCH' : 'UNKNOWN'}`
+  );
+  lines.push('');
+
+  lines.push('Daemon');
+  lines.push(
+    `  Launch spec permissions: ${structural.launchSpec.modeOctal || 'N/A'}`
+  );
+  lines.push(
+    `  Security check: ${structural.launchSpec.isSafe ? 'PASS' : 'FAIL (group/world writable)'}`
+  );
+  lines.push('');
+
+  if (extensions.hasAntigravity) {
+    lines.push('Antigravity');
+    lines.push(`  Installed: yes`);
+    if (extensions.antigravityModel) {
+      lines.push(`  Configured model: ${extensions.antigravityModel}`);
+    }
+    if (runtimeTest) {
+      lines.push(
+        `  Catalog probe: ${runtimeTest.catalogProbeOk ? 'PASS' : 'FAIL'}`
+      );
+      lines.push(
+        `  Worker smoke test: ${runtimeTest.success ? `PASS (${runtimeTest.durationMs}ms)` : `FAIL (${runtimeTest.error || 'error'})`}`
+      );
+    } else if (options.skipRuntimeTest) {
+      lines.push('  Worker smoke test: SKIPPED (--skip-runtime-test)');
+    } else {
+      lines.push(
+        `  Worker smoke test: SKIPPED (status is ${overallStatus})`
+      );
+    }
+    lines.push('');
+  }
+
+  lines.push(`Result: ${overallStatus}`);
+
+  const report = lines.join('\n');
+
+  return {
+    status: overallStatus,
+    omo,
+    extensions,
+    structural,
+    runtimeTest,
+    report,
+  };
+}
