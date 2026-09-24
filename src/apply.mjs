@@ -4,6 +4,7 @@ import { inspectTarget, applyPatch } from './lib/patch.mjs';
 import { createBackup, restoreBackup } from './lib/backup.mjs';
 import { runWorkerSmokeTest } from './lib/runtime-test.mjs';
 import { STATUS } from './lib/status.mjs';
+import { getOmoxVersion } from './lib/version.mjs';
 
 /**
  * Executes the apply command.
@@ -106,7 +107,7 @@ export async function runApply(options = {}) {
     omoPackageRoot: omo.omoPackageRoot,
     omoVersion: omo.omoVersion,
     filesToBackup,
-    omoxVersion: '1.0.0',
+    omoxVersion: getOmoxVersion(),
     backupRootDir: options.backupRootDir,
   });
 

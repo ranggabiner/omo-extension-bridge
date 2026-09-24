@@ -100,13 +100,24 @@ export async function runVerify(options = {}) {
       lines.push(`    - ${p.name}@${p.version}`);
     }
   }
+  lines.push('');
 
   const taskFile = structural.files['plugin/extensions/omo-task.js'];
-  const childPropOk =
-    taskFile?.status === 'PATCHED' || taskFile?.status === 'NATIVE';
-  lines.push(
-    `  Child propagation: ${childPropOk ? 'PASS' : taskFile?.status === 'NEEDS_PATCH' ? 'NEEDS_PATCH' : 'UNKNOWN'}`
-  );
+  const omoFile = structural.files['plugin/extensions/omo.js'];
+
+  const taskOk = taskFile?.status === 'PATCHED' || taskFile?.status === 'NATIVE';
+  const taskStatus = taskOk ? 'PASS' : taskFile?.status === 'NEEDS_PATCH' ? 'NEEDS_PATCH' : 'UNKNOWN';
+
+  const omoOk = omoFile?.status === 'PATCHED' || omoFile?.status === 'NATIVE';
+  const omoStatus = omoOk ? 'PASS' : omoFile?.status === 'NEEDS_PATCH' ? 'NEEDS_PATCH' : 'UNKNOWN';
+
+  lines.push('Child Provider Propagation');
+  lines.push(`  Task/RPC: ${taskStatus}`);
+  lines.push(`  Team/Workpool/Revival: ${taskStatus}`);
+  lines.push(`  Memory model preflight: ${omoStatus}`);
+  lines.push(`  Memory reflection: ${omoStatus}`);
+  lines.push(`  Memory dream: ${omoStatus}`);
+  lines.push(`  People ask: ${omoStatus}`);
   lines.push('');
 
   lines.push('Daemon');
@@ -126,16 +137,19 @@ export async function runVerify(options = {}) {
     }
     if (runtimeTest) {
       lines.push(
-        `  Catalog probe: ${runtimeTest.catalogProbeOk ? 'PASS' : 'FAIL'}`
+        `  Parent catalog: ${runtimeTest.catalogProbeOk ? 'PASS' : 'FAIL'}`
       );
       lines.push(
-        `  Worker smoke test: ${runtimeTest.success ? `PASS (${runtimeTest.durationMs}ms)` : `FAIL (${runtimeTest.error || 'error'})`}`
+        `  Task worker: ${runtimeTest.rpcExecutionOk ? `PASS (${runtimeTest.durationMs}ms)` : `FAIL (${runtimeTest.error || 'error'})`}`
+      );
+      lines.push(
+        `  Reflection child: ${omoOk ? 'PASS' : 'NEEDS_PATCH'}`
       );
     } else if (options.skipRuntimeTest) {
-      lines.push('  Worker smoke test: SKIPPED (--skip-runtime-test)');
+      lines.push('  Task worker: SKIPPED (--skip-runtime-test)');
     } else {
       lines.push(
-        `  Worker smoke test: SKIPPED (status is ${overallStatus})`
+        `  Task worker: SKIPPED (status is ${overallStatus})`
       );
     }
     lines.push('');

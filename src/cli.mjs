@@ -3,22 +3,29 @@
 import { runVerify } from './verify.mjs';
 import { runApply } from './apply.mjs';
 import { runRollback } from './rollback.mjs';
+import { runUpdate } from './update.mjs';
 import { statusToExitCode, EXIT_CODES } from './lib/status.mjs';
-
-const VERSION = '1.0.0';
+import { getOmoxVersion } from './lib/version.mjs';
 
 function printHelp() {
-  console.log(`omox - OmO package-extension propagation compatibility bridge (v${VERSION})
+  const version = getOmoxVersion();
+  console.log(`omox - OmO package-extension propagation compatibility bridge (v${version})
 
 Usage:
   omox <command> [options]
 
 Commands:
-  verify       Inspect active OmO installation and extension propagation (read-only)
-  apply        Safely backup, patch, and verify OmO for package-extension propagation
-  rollback     Restore exact pre-apply state from latest compatible backup
+  verify       Inspect OmO compatibility without modifying it.
+  apply        Apply the compatibility patch when safely required.
+  rollback     Restore the exact state before the latest omox apply.
+  update       Update omox itself from the official GitHub repository.
+
+Note:
+  omox update does NOT update OmO.
 
 Options:
+  --source <source>     Custom package source for update (default: github:ranggabiner/omo-extension-bridge)
+  --pm <bun|npm>        Force specific package manager for update
   --skip-runtime-test   Skip out-of-process worker smoke test
   --timeout <ms>        Timeout for runtime smoke test in milliseconds (default: 30000)
   --omo-root <path>     Explicit path to OmO package root directory
@@ -30,12 +37,12 @@ Options:
   --help, -h            Show this help text
 
 Exit codes:
-  0   Success (NATIVE_OK / PATCHED_OK / successful apply / successful rollback)
+  0   Success (NATIVE_OK / PATCHED_OK / successful apply / successful rollback / update)
   10  NEEDS_PATCH (known affected OmO installation detected)
   20  INCOMPATIBLE (unknown or unsupported OmO structure)
   30  VERIFY_FAILED (structural or runtime test failed)
   40  NO_BACKUP (no valid rollback backup available)
-  50  CLI / usage error
+  50  CLI / internal error
 `);
 }
 
@@ -47,6 +54,8 @@ function parseArgs(args) {
     omoPackageRoot: null,
     agentDir: null,
     backupRootDir: null,
+    source: null,
+    overridePm: null,
     json: false,
     verbose: false,
     help: false,
@@ -75,6 +84,10 @@ function parseArgs(args) {
       options.agentDir = args[++i];
     } else if (arg === '--backup-root') {
       options.backupRootDir = args[++i];
+    } else if (arg === '--source') {
+      options.source = args[++i];
+    } else if (arg === '--pm') {
+      options.overridePm = args[++i];
     } else if (!arg.startsWith('-') && !command) {
       command = arg;
     }
@@ -87,7 +100,7 @@ async function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
 
   if (options.version) {
-    console.log(`omox v${VERSION}`);
+    console.log(getOmoxVersion());
     process.exit(EXIT_CODES.SUCCESS);
   }
 
@@ -127,6 +140,17 @@ async function main() {
 
       case 'rollback': {
         const result = await runRollback(options);
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(result.report);
+        }
+        process.exit(result.exitCode);
+        break;
+      }
+
+      case 'update': {
+        const result = await runUpdate(options);
         if (options.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {

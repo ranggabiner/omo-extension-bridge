@@ -36,6 +36,13 @@ export const KNOWN_TARGETS = Object.freeze({
         patchedAnchor: '(e.extensions??[]).filter(e=>_w(e)!==z_):e.extensions??[];for(let e of[...new Set(n)])e.length>0&&t.push("--extension",e);',
         nativeIndicator: 'resolveInheritedExtensions',
       },
+      'plugin/extensions/omo.js': {
+        unpatchedHash: 'ca572240836530a08e566fd88a55d8b9eb7c0a02ea23a150e1602010767eda58',
+        patchedHash: 'a2720a889ccde48686197af66f2aaa4da1acf1059cb6845a43d0f892182ece5a',
+        unpatchedAnchor: 'var RK=["--no-extensions","--no-skills","--no-prompt-templates","--no-context-files","--list-models"],DK=new Map;async function FK(e){',
+        patchedAnchor: 'async function _omoxResolvePkgExts(e){',
+        nativeIndicator: '_omoxResolvePkgExts',
+      },
       'bin/lib/engine-prepare.js': {
         unpatchedHash: 'b66b1c9c3418db58e0d4c03f3b43192ccba1bdd5f26633121ece82d8e207ddcb',
         patchedHash: 'c1a5bdfe09c3089c8ad5aa9e80b55e4eaeb6a05394e896249e60be86a043e53f',

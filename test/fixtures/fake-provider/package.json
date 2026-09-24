@@ -1,0 +1,9 @@
+{
+  "name": "omox-fixture-provider",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "pi": {
+    "extensions": ["index.mjs"]
+  }
+}
