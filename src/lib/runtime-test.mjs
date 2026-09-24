@@ -11,10 +11,11 @@ import fs from 'node:fs';
  * 4. Return output
  *
  * @param {object} params
+ * @param {string} [params.senpiExecutable] Absolute path to senpi executable
  * @param {string} params.extensionPath Absolute path to extension entrypoint
  * @param {string} params.model Target model (e.g. 'antigravity/gemini-3.8-flash')
  * @param {string} params.agentDir OmO agent directory
- * @param {number} [params.timeoutMs=15000] Maximum timeout in milliseconds
+ * @param {number} [params.timeoutMs=30000] Maximum timeout in milliseconds
  * @returns {Promise<{
  *   success: boolean,
  *   model: string,
@@ -27,12 +28,26 @@ import fs from 'node:fs';
  * }>}
  */
 export async function runWorkerSmokeTest({
+  senpiExecutable,
   extensionPath,
   model,
   agentDir,
-  timeoutMs = 15000,
+  timeoutMs = 30000,
 }) {
   const startTime = Date.now();
+
+  if (!senpiExecutable || !fs.existsSync(senpiExecutable)) {
+    return {
+      success: false,
+      model,
+      extensionPath: extensionPath || '',
+      catalogProbeOk: false,
+      rpcExecutionOk: false,
+      response: null,
+      durationMs: 0,
+      error: `Senpi executable could not be resolved or does not exist (${senpiExecutable || 'unresolved'}). Please ensure Senpi is installed with OmO or available in PATH.`,
+    };
+  }
 
   if (!extensionPath || !fs.existsSync(extensionPath)) {
     return {
@@ -62,7 +77,7 @@ export async function runWorkerSmokeTest({
         '--list-models',
         providerName,
       ];
-      p = spawn('senpi', probeArgs, {
+      p = spawn(senpiExecutable, probeArgs, {
         env: {
           ...process.env,
           SENPI_CODING_AGENT_DIR: agentDir,
@@ -124,7 +139,7 @@ export async function runWorkerSmokeTest({
     let child;
     try {
       child = spawn(
-        'senpi',
+        senpiExecutable,
         [
           '--mode',
           'rpc',

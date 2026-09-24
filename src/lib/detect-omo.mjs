@@ -144,6 +144,88 @@ export function resolveSenpiVersion(omoPackageRoot, omoPkg) {
 }
 
 /**
+ * Resolves the Senpi executable associated with the OmO package,
+ * inspecting package.json bin fields in nested and peer dependency layouts,
+ * with PATH fallback.
+ *
+ * @param {string} [omoPackageRoot]
+ * @returns {string|null}
+ */
+export function resolveSenpiExecutable(omoPackageRoot) {
+  if (omoPackageRoot) {
+    // 1. Check nested and peer package directories
+    const candidateDirs = [
+      path.join(omoPackageRoot, 'node_modules', '@code-yeongyu', 'senpi'),
+      path.join(omoPackageRoot, 'node_modules', 'senpi'),
+      path.join(omoPackageRoot, '..', '@code-yeongyu', 'senpi'),
+      path.join(omoPackageRoot, '..', 'senpi'),
+    ];
+
+    for (const senpiDir of candidateDirs) {
+      const pkgJsonPath = path.join(senpiDir, 'package.json');
+      if (fs.existsSync(pkgJsonPath)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+          let binRel = null;
+          if (typeof pkg.bin === 'string') {
+            binRel = pkg.bin;
+          } else if (typeof pkg.bin === 'object' && pkg.bin !== null) {
+            binRel = pkg.bin.senpi || pkg.bin.pi || Object.values(pkg.bin)[0];
+          }
+
+          if (binRel) {
+            const binPath = path.resolve(senpiDir, binRel);
+            if (fs.existsSync(binPath)) {
+              return binPath;
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // 2. Check .bin directories in nested and peer node_modules
+    const candidateBins = [
+      path.join(omoPackageRoot, 'node_modules', '.bin', 'senpi'),
+      path.join(omoPackageRoot, '..', '.bin', 'senpi'),
+    ];
+    if (process.platform === 'win32') {
+      candidateBins.unshift(
+        path.join(omoPackageRoot, 'node_modules', '.bin', 'senpi.cmd'),
+        path.join(omoPackageRoot, '..', '.bin', 'senpi.cmd')
+      );
+    }
+
+    for (const binPath of candidateBins) {
+      if (fs.existsSync(binPath)) {
+        try {
+          if (fs.statSync(binPath).isFile()) return binPath;
+        } catch {}
+      }
+    }
+  }
+
+  // 3. Fall back to senpi from PATH
+  const pathDirs = (process.env.PATH || '').split(path.delimiter);
+  const candidates = process.platform === 'win32'
+    ? ['senpi.cmd', 'senpi.exe', 'senpi.bat', 'senpi.ps1', 'senpi']
+    : ['senpi'];
+
+  for (const dir of pathDirs) {
+    if (!dir) continue;
+    for (const binName of candidates) {
+      const fullPath = path.join(dir, binName);
+      try {
+        if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+          return fullPath;
+        }
+      } catch {}
+    }
+  }
+
+  return null;
+}
+
+/**
  * Dynamically detects OmO installation details.
  *
  * @param {object} [options={}]
@@ -220,6 +302,7 @@ export function detectOmo(options = {}) {
 
   const omoVersion = omoPkg.version || 'unknown';
   const senpiVersion = resolveSenpiVersion(packageRoot, omoPkg);
+  const senpiExecutable = options.senpiExecutable || resolveSenpiExecutable(packageRoot);
 
   const home = os.homedir();
   const agentDir = options.agentDir ||
@@ -232,6 +315,7 @@ export function detectOmo(options = {}) {
     omoPackageRoot: path.resolve(packageRoot),
     omoVersion,
     senpiVersion,
+    senpiExecutable,
     agentDir: path.resolve(agentDir),
     nodeVersion: process.version,
   };

@@ -6,11 +6,12 @@ import os from 'node:os';
 import { STATUS, EXIT_CODES, statusToExitCode } from '../src/lib/status.mjs';
 import { isSafeMode, checkLaunchSpecPermissions, ensureSafePermissions } from '../src/lib/permissions.mjs';
 import { sha256, sha256File, KNOWN_TARGETS, getKnownTarget } from '../src/lib/hashes.mjs';
-import { findPackageRoot, resolveEntryFromScript } from '../src/lib/detect-omo.mjs';
+import { findPackageRoot, resolveEntryFromScript, resolveSenpiExecutable } from '../src/lib/detect-omo.mjs';
 import { detectExtensions } from '../src/lib/detect-extensions.mjs';
 import { createBackup, restoreBackup, listBackups, getLatestBackupForInstall } from '../src/lib/backup.mjs';
 import { inspectTarget, applyPatch } from '../src/lib/patch.mjs';
 import { PATCH_DATA } from '../src/lib/patch-data.mjs';
+import { runWorkerSmokeTest } from '../src/lib/runtime-test.mjs';
 import { runVerify } from '../src/verify.mjs';
 import { runApply } from '../src/apply.mjs';
 import { runRollback } from '../src/rollback.mjs';
@@ -472,6 +473,117 @@ await testAsync('End-to-end Apply -> Verify -> Rollback transaction on unpatched
       skipRuntimeTest: true,
     });
     assert.equal(v3.status, STATUS.NEEDS_PATCH, 'Rolled-back fixture must return to NEEDS_PATCH');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// 11. Regression: Bun-style peer Senpi installation resolution
+test('resolveSenpiExecutable discovers Bun-style peer Senpi via package.json bin', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omox-test-peer-senpi-'));
+  try {
+    const nodeModules = path.join(tmpDir, 'node_modules');
+    const omoPkg = path.join(nodeModules, 'omo-ai');
+    const senpiPkg = path.join(nodeModules, '@code-yeongyu', 'senpi');
+    fs.mkdirSync(omoPkg, { recursive: true });
+    fs.mkdirSync(path.join(senpiPkg, 'dist', 'bundle'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(senpiPkg, 'package.json'),
+      JSON.stringify({
+        name: '@code-yeongyu/senpi',
+        bin: { senpi: 'dist/bundle/cli.js' },
+      })
+    );
+    const cliFile = path.join(senpiPkg, 'dist', 'bundle', 'cli.js');
+    fs.writeFileSync(cliFile, '#!/usr/bin/env node');
+
+    const resolved = resolveSenpiExecutable(omoPkg);
+    assert.equal(resolved, cliFile);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// 12. Regression: Nested Senpi installation resolution
+test('resolveSenpiExecutable discovers nested Senpi via package.json bin', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omox-test-nested-senpi-'));
+  try {
+    const omoPkg = path.join(tmpDir, 'omo-ai');
+    const senpiPkg = path.join(omoPkg, 'node_modules', '@code-yeongyu', 'senpi');
+    fs.mkdirSync(path.join(senpiPkg, 'bin'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(senpiPkg, 'package.json'),
+      JSON.stringify({
+        name: '@code-yeongyu/senpi',
+        bin: 'bin/senpi.js',
+      })
+    );
+    const cliFile = path.join(senpiPkg, 'bin', 'senpi.js');
+    fs.writeFileSync(cliFile, '#!/usr/bin/env node');
+
+    const resolved = resolveSenpiExecutable(omoPkg);
+    assert.equal(resolved, cliFile);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// 13. Regression: PATH fallback when no package-associated Senpi is found
+test('resolveSenpiExecutable falls back to PATH when package has no Senpi', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omox-test-path-senpi-'));
+  try {
+    const omoPkg = path.join(tmpDir, 'omo-ai');
+    const fakeBin = path.join(tmpDir, 'fake-bin');
+    fs.mkdirSync(omoPkg, { recursive: true });
+    fs.mkdirSync(fakeBin, { recursive: true });
+
+    const fakeExe = path.join(fakeBin, 'senpi');
+    fs.writeFileSync(fakeExe, '#!/bin/sh');
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = fakeBin;
+    try {
+      const resolved = resolveSenpiExecutable(omoPkg);
+      assert.equal(resolved, fakeExe);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// 14. Regression: No Senpi available returns null and smoke test provides clear error (not raw ENOENT)
+await testAsync('no Senpi available returns null and fails with clear diagnostic', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omox-test-no-senpi-'));
+  try {
+    const omoPkg = path.join(tmpDir, 'omo-ai');
+    fs.mkdirSync(omoPkg, { recursive: true });
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = path.join(tmpDir, 'empty-bin');
+    try {
+      const resolved = resolveSenpiExecutable(omoPkg);
+      assert.equal(resolved, null);
+
+      const smokeRes = await runWorkerSmokeTest({
+        senpiExecutable: null,
+        extensionPath: '/nonexistent/ext.ts',
+        model: 'antigravity/gemini-3.8-flash',
+        agentDir: tmpDir,
+      });
+
+      assert.equal(smokeRes.success, false);
+      assert.equal(smokeRes.catalogProbeOk, false);
+      assert.ok(
+        smokeRes.error.includes('Senpi executable could not be resolved'),
+        `Expected clear error message, got: ${smokeRes.error}`
+      );
+    } finally {
+      process.env.PATH = oldPath;
+    }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

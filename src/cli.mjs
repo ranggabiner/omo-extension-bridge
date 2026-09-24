@@ -20,7 +20,7 @@ Commands:
 
 Options:
   --skip-runtime-test   Skip out-of-process worker smoke test
-  --timeout <ms>        Timeout for runtime smoke test in milliseconds (default: 15000)
+  --timeout <ms>        Timeout for runtime smoke test in milliseconds (default: 30000)
   --omo-root <path>     Explicit path to OmO package root directory
   --agent-dir <path>    Explicit path to OmO agent directory
   --backup-root <path>  Explicit directory for storing/reading backups
@@ -43,7 +43,7 @@ function parseArgs(args) {
   let command = null;
   const options = {
     skipRuntimeTest: false,
-    timeoutMs: 15000,
+    timeoutMs: 30000,
     omoPackageRoot: null,
     agentDir: null,
     backupRootDir: null,

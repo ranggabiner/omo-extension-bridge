@@ -16,7 +16,7 @@ import { STATUS } from './lib/status.mjs';
  * @param {string} [options.agentDir]
  * @param {string} [options.backupRootDir]
  * @param {boolean} [options.skipRuntimeTest=false]
- * @param {number} [options.timeoutMs=15000]
+ * @param {number} [options.timeoutMs=30000]
  * @returns {Promise<{
  *   status: string,
  *   modified: boolean,
@@ -133,10 +133,11 @@ export async function runApply(options = {}) {
 
       if (extensions.hasAntigravity && extensions.antigravityEntry) {
         const runtimeTest = await runWorkerSmokeTest({
+          senpiExecutable: omo.senpiExecutable,
           extensionPath: extensions.antigravityEntry,
           model: extensions.antigravityModel || 'antigravity/gemini-3.8-flash',
           agentDir: omo.agentDir,
-          timeoutMs: options.timeoutMs || 15000,
+          timeoutMs: options.timeoutMs || 30000,
         });
 
         if (!runtimeTest.success) {
